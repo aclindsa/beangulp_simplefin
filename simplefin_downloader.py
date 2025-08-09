@@ -32,7 +32,7 @@ class SimpleFinDownloader:
 
     def download(self, filename):
         request_url = f'{self.simplefin_url}/accounts'
-        end_time = datetime.now() + timedelta(days=1)
+        end_time = datetime.now()
         start_time = end_time - self.download_days
         params = {
             'account': self.simplefin_acctid,
