@@ -1,0 +1,163 @@
+from beancount.core import data, amount, flags, interpolate
+from beancount.core.number import D, ZERO, ONE
+from datetime import date, datetime
+
+import beangulp
+import collections
+import json
+
+
+class SimpleFinSimilarityComparator:
+    """Similarity comparator of imported Plaid transactions.
+
+    This comparator needs to be able to handle Transaction instances which are
+    incomplete on one side, which have slightly different dates, or potentially
+    slightly different numbers.
+    """
+
+    # Fraction difference allowed of variation.
+    EPSILON = D('0.05')  # 5%
+
+    def __init__(self, max_date_delta=None):
+        """Constructor a comparator of entries.
+        Args:
+          max_date_delta: A datetime.timedelta instance of the max tolerated
+            distance between dates.
+        """
+        self.cache = {}
+        self.max_date_delta = max_date_delta
+
+    def __call__(self, entry1, entry2):
+        """Compare two entries, return true if they are deemed similar.
+
+        Args:
+          entry1: A first Transaction directive.
+          entry2: A second Transaction directive.
+        Returns:
+          A boolean.
+        """
+        # Check the date difference.
+        if self.max_date_delta is not None:
+            delta = ((entry1.date - entry2.date)
+                     if entry1.date > entry2.date else
+                     (entry2.date - entry1.date))
+            if delta > self.max_date_delta:
+                return False
+
+        try:
+            amounts1 = self.cache[id(entry1)]
+        except KeyError:
+            amounts1 = self.cache[id(entry1)] = amounts_map(entry1)
+        try:
+            amounts2 = self.cache[id(entry2)]
+        except KeyError:
+            amounts2 = self.cache[id(entry2)] = amounts_map(entry2)
+
+        # Look for amounts on common accounts.
+        common_keys = set(amounts1) & set(amounts2)
+        for key in sorted(common_keys):
+            # Compare the amounts.
+            number1 = amounts1[key]
+            number2 = amounts2[key]
+            if number1 == ZERO and number2 == ZERO:
+                break
+            diff = abs((number1 / number2)
+                       if number2 != ZERO
+                       else (number2 / number1))
+            if diff == ZERO:
+                return False
+            if diff < ONE:
+                diff = ONE/diff
+            if (diff - ONE) < self.EPSILON:
+                break
+        else:
+            return False
+
+        return True
+
+
+def amounts_map(entry):
+    """Compute a mapping of (account, currency) -> Decimal balances.
+
+    Args:
+      entry: A Transaction instance.
+    Returns:
+      A dict of account -> Amount balance.
+    """
+    amounts = collections.defaultdict(D)
+    for posting in entry.postings:
+        if not posting.meta:
+            continue
+        # Skip interpolated postings.
+        if interpolate.AUTOMATIC_META in posting.meta or 'simplefin_txid' not in posting.meta:
+            continue
+        currency = isinstance(posting.units, amount.Amount) and posting.units.currency
+        if isinstance(currency, str):
+            plaid_id = posting.meta['simplefin_txid'] if 'simplefin_txid' in posting.meta else None
+            key = (posting.account, plaid_id, currency)
+            amounts[key] += posting.units.number
+    return amounts
+
+
+class Importer(beangulp.Importer):
+    def __init__(self, account_name, account_id):
+        self.account_name = account_name
+        self.account_id = account_id
+
+    def identify(self, filepath):
+        with open(filepath) as fp:
+            try:
+                j = json.load(fp)
+            except Exception:
+                return False
+
+            if 'simplefin_versions' in j and '1.0' in j['simplefin_versions']:
+                if 'response' in j and 'id' in j['response'] and j['response']['id'] == self.account_id:
+                    return True
+        return False
+
+    def account(self, filepath):
+        return self.account_name
+
+    def filename(self, filepath):
+        return f"{self.account_name.split(':')[-1]}.json"
+
+    def extract(self, filepath, existing):
+        entries = []
+        fp = open(filepath)
+        j = json.load(fp)
+
+        currency = j['response']['currency']
+        latest_date = date.min
+
+        for index, transaction in enumerate(j['response']['transactions']):
+            if 'pending' in transaction and transaction['pending']:
+                continue
+            if transaction['posted'] == 0:
+                continue
+            t_date = datetime.fromtimestamp(transaction['posted']).date()
+            latest_date = t_date if t_date > latest_date else latest_date
+
+            desc = transaction['description']
+            merch = desc
+            simplefin_txid = transaction['id']
+            amt = transaction['amount']
+            meta = data.new_metadata(filepath, index)
+            units = amount.Amount(D(amt), currency)
+
+            leg1 = data.Posting(self.account_name, units, None, None, None,
+                                {'simplefin_txid': simplefin_txid})
+            txn = data.Transaction(meta, t_date, flags.FLAG_OKAY, merch, desc,
+                                   data.EMPTY_SET, data.EMPTY_SET, [leg1])
+            entries.append(txn)
+
+        # Insert final balance check
+        if len(entries):
+            balance = j['response']['balance']
+            balance_date = datetime.fromtimestamp(j['response']['balance-date']).date()
+            meta = data.new_metadata(filepath, 0)
+            amt = amount.Amount(D(balance), currency)
+            entries.append(data.Balance(meta, balance_date,
+                                        self.account_name, amt, None, None))
+
+        return entries

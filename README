@@ -1,0 +1,32 @@
+This projects allows you to download and/or import banking transactions from
+SimpleFin, with the goal of making it easier to download transactions to
+beancount via the beangulp interface.
+
+Getting Started:
+
+First, create an account at https://bridge.simplefin.org/simplefin/create.
+After providing billing info and logging into your financial institution(s)
+there, create a new 'App'. You'll be given a "setup token" for this app.
+Execute the following steps to convert that setup token into an access URL: 
+
+% SETUP_TOKEN='your_setup_token_here'
+% CLAIM_URL="$(echo "$SETUP_TOKEN" | base64 --decode)"
+% ACCESS_URL=$(curl -H "Content-Length: 0" -X POST "$CLAIM_URL")
+% echo $ACCESS_URL
+
+The $ACCESS_URL will look something like
+"https://username:password@beta-bridge.simplefin.org/simplefin" (where
+"username" and "password" are long strings of gibberish instead). Store the
+username and password in a secure place - these are the username/password you
+will need to supply to the constructor of SimpleFinDownloader to download your
+account transactions.
+
+Once you have successfully connected your accounts AND created an app login on
+SimpleFin, you can use the command-line (cli.py) to get the account IDs
+
+% ./cli --access-url "${ACCESS_URL}" list-accounts
+
+Once you have your simplefin username, password, AND account ID, you have
+enough information to construct simplefin_downloader.SimpleFinDownloader to
+download your transactions and simplefin_importer.Importer to import via
+beangulp.
