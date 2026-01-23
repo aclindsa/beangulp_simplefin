@@ -62,9 +62,14 @@ class SimpleFinDownloader:
                 }
                 json.dump(j, out_file, indent=2)
 
-        if 'accounts' not in data:
+        if 'errors' not in data or 'accounts' not in data:
             # write out for debugging purposes
+            print(f"Unexpected SimpleFin data format, see {filename} for details")
             output_json(data)
+            return False
+
+        if data['errors']:
+            print(f"SimpleFin returned errors: {', '.join(data['errors'])}")
             return False
 
         for account in data['accounts']:
