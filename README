@@ -24,7 +24,7 @@ account transactions.
 Once you have successfully connected your accounts AND created an app login on
 SimpleFin, you can use the command-line (cli.py) to get the account IDs
 
-% ./cli --access-url "${ACCESS_URL}" list-accounts
+% ./cli.py --access-url "${ACCESS_URL}" list-accounts
 
 Once you have your simplefin username, password, AND account ID, you have
 enough information to construct simplefin_downloader.SimpleFinDownloader to
