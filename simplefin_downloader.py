@@ -31,7 +31,7 @@ class SimpleFinDownloader:
             return []
 
     def download(self, filename):
-        request_url = f'{self.simplefin_url}/accounts'
+        request_url = f'{self.simplefin_url}/accounts?version=2'
         end_time = datetime.now()
         start_time = end_time - self.download_days
         params = {
@@ -62,14 +62,14 @@ class SimpleFinDownloader:
                 }
                 json.dump(j, out_file, indent=2)
 
-        if 'errors' not in data or 'accounts' not in data:
+        if 'errlist' not in data or 'accounts' not in data:
             # write out for debugging purposes
             print(f"Unexpected SimpleFin data format, see {filename} for details")
             output_json(data)
             return False
 
-        if data['errors']:
-            print(f"SimpleFin returned errors: {', '.join(data['errors'])}")
+        if data['errlist']:
+            print(f"SimpleFin returned errors: {', '.join(data['errlist'])}")
             return False
 
         for account in data['accounts']:
